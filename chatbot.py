@@ -4,7 +4,7 @@
 # Original Python code by Ignacio Cases (@cases)
 ######################################################################
 import util
-
+import re  ### imported, as per Ed
 import numpy as np
 
 
@@ -15,7 +15,7 @@ class Chatbot:
     def __init__(self, creative=False):
         # The chatbot's default name is `moviebot`.
         # TODO: Give your chatbot a new name.
-        self.name = 'moviebot'
+        self.name = 'Ely/Janice/Shumann/Chris MovieBot'
 
         self.creative = creative
 
@@ -45,7 +45,7 @@ class Chatbot:
         # TODO: Write a short greeting message                                 #
         ########################################################################
 
-        greeting_message = "How can I help you?"
+        greeting_message = "Wassup"
 
         ########################################################################
         #                             END OF YOUR CODE                         #
@@ -60,7 +60,7 @@ class Chatbot:
         # TODO: Write a short farewell message                                 #
         ########################################################################
 
-        goodbye_message = "Have a nice day!"
+        goodbye_message = "ai bet, cya"
 
         ########################################################################
         #                          END OF YOUR CODE                            #
@@ -101,6 +101,14 @@ class Chatbot:
             response = "I processed {} in creative mode!!".format(line)
         else:
             response = "I processed {} in starter mode!!".format(line)
+            ## TEST 
+            # print(self.sentiment)
+            print(self.extract_titles(line))
+            title_list = self.extract_titles(line)
+            for title in title_list:
+                mov_index = self.find_movies_by_title(title)
+                print(mov_index)
+            print(self.extract_sentiment(line))
 
         ########################################################################
         #                          END OF YOUR CODE                            #
@@ -159,7 +167,11 @@ class Chatbot:
         pre-processed with preprocess()
         :returns: list of movie titles that are potentially in the text
         """
-        return []
+        pattern = '(\".+\"|\'.+\')'  # 
+        pot_titles = re.findall(pattern, preprocessed_input)
+        # remove the quotation marks 
+        res = [title[1:-1] for title in pot_titles]
+        return res
 
     def find_movies_by_title(self, title):
         """ Given a movie title, return a list of indices of matching movies.
@@ -179,7 +191,38 @@ class Chatbot:
         :param title: a string containing a movie title
         :returns: a list of indices of matching movies
         """
-        return []
+        movie_ids = []            
+        title = title.lower()
+        edited_title = title  # for now
+        has_year = False
+        
+        title_tokens = title.split(" ")
+        # check if tokens have years 
+        if re.match("\([0-9][0-9][0-9][0-9]\)", title_tokens[-1]):
+            has_year = True
+
+        if len(title_tokens) > 1 and (title_tokens[0] == "a" or 
+                                      title_tokens[0] == "the" or 
+                                      title_tokens[0] == "an"):
+            if has_year:
+                has_year = True 
+                edited_title = " ".join(title_tokens[1:-1])  # merge, exclude the first and last token 
+                edited_title = edited_title + ", " + title_tokens[0] + " " + title_tokens[-1]
+            else:
+                edited_title = " ".join(title_tokens[1:]) + ", " + title_tokens[0]
+        
+        # find if the title matches by iterating all possible match
+        print(edited_title)
+        for index in range(len(self.titles)):
+            pot_match = self.titles[index][0].lower()
+            # print(pot_match)
+            if has_year:
+                if edited_title == pot_match:
+                    movie_ids.append(index)
+            else:
+                if edited_title == pot_match[:-7]:
+                    movie_ids.append(index)    
+        return movie_ids
 
     def extract_sentiment(self, preprocessed_input):
         """Extract a sentiment rating from a line of pre-processed text.
@@ -201,7 +244,28 @@ class Chatbot:
         pre-processed with preprocess()
         :returns: a numerical value for the sentiment of the text
         """
-        return 0
+        # tokenize the input first
+        punctuations = '#$%&\()*+,-./:;<=>?@[\\]^_`{|}~'
+        # remove punctuations and split by space (list) and lowercase 
+        tokens = preprocessed_input.strip(punctuations).lower().split(" ")
+
+        # for now, sum the scores 
+        score, sentiment = 0, 0
+        for token in tokens:
+            if token in self.sentiment:
+                if self.sentiment[token] == "neg": 
+                    score -= 1
+                else:
+                    score += 1
+        
+        if score > 0:
+            sentiment = 1
+        elif score == 0:
+            sentiment = 0
+        else:
+            sentiment = -1
+
+        return sentiment 
 
     def extract_sentiment_for_movies(self, preprocessed_input):
         """Creative Feature: Extracts the sentiments from a line of
@@ -308,8 +372,9 @@ class Chatbot:
 
         # The starter code returns a new matrix shaped like ratings but full of
         # zeros.
-        binarized_ratings = np.zeros_like(ratings)
-
+        # binarized_ratings = np.zeros_like(ratings)
+        binarized_ratings = np.where(ratings > threshold, 1, -1)
+        binarized_ratings = np.where(ratings == 0, 0, binarized_ratings)
         ########################################################################
         #                        END OF YOUR CODE                              #
         ########################################################################
@@ -328,7 +393,13 @@ class Chatbot:
         ########################################################################
         # TODO: Compute cosine similarity between the two vectors.             #
         ########################################################################
-        similarity = 0
+        norm_u, norm_v = 0, 0
+        for n in u:
+            norm_u += n ** 2
+        for n in v:
+            norm_v += n ** 2
+        norm_u, norm_v = np.sqrt(norm_u), np.sqrt(norm_v)
+        similarity = np.dot(u, v) / (norm_u * norm_v)
         ########################################################################
         #                          END OF YOUR CODE                            #
         ########################################################################
