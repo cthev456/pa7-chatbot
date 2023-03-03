@@ -6,7 +6,7 @@
 import util
 import re  ### imported, as per Ed
 import numpy as np
-
+import string
 
 # noinspection PyMethodMayBeStatic
 class Chatbot:
@@ -18,6 +18,8 @@ class Chatbot:
         self.name = 'Ely/Janice/Shumann/Chris MovieBot'
 
         self.creative = creative
+        self.opposite = {'dont', 'didnt', 'wont', 'wasnt', 'werent', 'hasnt', 'cant', 'shouldnt', 'never', 'not', 'hardly', 'seldom', 'rarely', 'cannot'}
+        self.strong_words = {'love', 'hate', 'best', 'worst', 'amazing', 'wonderful', 'majestic', 'favorite', 'really', 'very', 'awful', 'terrible', 'cringe', 'awesome'}
 
         # This matrix has the following shape: num_movies x num_users
         # The values stored in each row i and column j is the rating for
@@ -245,27 +247,107 @@ class Chatbot:
         :returns: a numerical value for the sentiment of the text
         """
         # tokenize the input first
-        punctuations = '#$%&\()*+,-./:;<=>?@[\\]^_`{|}~'
-        # remove punctuations and split by space (list) and lowercase 
-        tokens = preprocessed_input.strip(punctuations).lower().split(" ")
+        punctuations = string.punctuation
+        # # remove punctuations and split by space (list) and lowercase 
+        # tokens = preprocessed_input.strip(punctuations).lower().split(" ")
 
-        # for now, sum the scores 
-        score, sentiment = 0, 0
-        for token in tokens:
-            if token in self.sentiment:
-                if self.sentiment[token] == "neg": 
-                    score -= 1
-                else:
-                    score += 1
+        # # for now, sum the scores 
+        # score, sentiment = 0, 0
+        # for token in tokens:
+        #     if token in self.sentiment:
+        #         if self.sentiment[token] == "neg": 
+        #             score -= 1
+        #         else:
+        #             score += 1
         
-        if score > 0:
-            sentiment = 1
-        elif score == 0:
-            sentiment = 0
-        else:
-            sentiment = -1
+        # if score > 0:
+        #     sentiment = 1
+        # elif score == 0:
+        #     sentiment = 0
+        # else:
+        #     sentiment = -1
 
-        return sentiment 
+        # return sentiment 
+        sent_score = 0
+        super_sauce = 0
+        # get rid of titles (don't want title to affect sentiment)
+        titles = self.extract_titles(preprocessed_input)
+        text_updated = preprocessed_input
+        for t in titles:
+            text_updated = preprocessed_input.replace(t, '')
+        # get rid of punctuation
+        text_updated_two = re.sub('[%s]' % re.escape(punctuations), '', text_updated)
+        # break text into individual words
+        text_updated_three = text_updated_two.split()
+
+        # initialize temporary variables in loop
+        neg_next = 1
+        score = 0
+        # print(text_updated_three)
+        for i, word in enumerate(text_updated_three):
+
+            # stemming
+            # stem_word = self.stemmer.stem(word, 0,len(word)-1)
+
+            # negation word classified as negative sentiment (find all words ending in nt if not in our list)
+            if word in self.opposite or re.search("nt$", word):  # or stem_word in self.opposite
+                neg_next *= -1
+                if i == len(text_updated_three) - 1:
+                    sent_score *= neg_next
+                continue
+            if self.creative:
+                if word in self.strong_words:
+                    # add weight if strong "super" word is present (2 or -2 returned)
+                    super_sauce = 1
+            if word in self.sentiment:
+                # positive sentiment detected
+                if self.sentiment[word] == 'pos':
+                    score = 1
+                # negative sentiment detected
+                elif self.sentiment[word] == 'neg':
+                    score = -1
+                # flip score for next word if negation present
+                score *= neg_next
+                # reset negation variable
+                neg_next = 1
+                # compute running sentiment score
+                sent_score += score
+                # break out of loop if successful (to avoid double counting if present tense verb also there)
+                continue
+            # get entire word besides last letter if it is 'd'
+            if word[-1:] == 'd':
+                present_tense_word = word[0:-1]
+                if present_tense_word in self.sentiment:
+                    # support for past tense verbs such as 'loved' and 'liked'
+                    if self.sentiment[present_tense_word] == 'pos':
+                        score = 1
+                    # support for past tense verbs such as 'hated' and 'disliked'
+                    if self.sentiment[present_tense_word] == 'neg':
+                        score = -1
+                    score *= neg_next
+                    neg_next = 1
+                    sent_score += score
+                    continue
+            if word[-2:] == 'ed':
+                present_tense_ed_word = word[0:-2]
+                if present_tense_ed_word in self.sentiment:
+                    # support for past tense verbs such as 'enjoyed'
+                    if self.sentiment[present_tense_ed_word] == 'pos':
+                        score = 1
+                    # futher support for past tense verbs ending in 'ed'
+                    if self.sentiment[present_tense_ed_word] == 'neg':
+                        score = -1
+                    score *= neg_next
+                    neg_next = 1
+                    sent_score += score
+
+        # super sauce is 0 unless super negative or positive sentiment is detected in creative mode
+        if sent_score > 0:
+            sent_score = 1 + super_sauce
+        elif sent_score < 0:
+            sent_score = -1 - super_sauce
+
+        return sent_score
 
     def extract_sentiment_for_movies(self, preprocessed_input):
         """Creative Feature: Extracts the sentiments from a line of
@@ -408,6 +490,9 @@ class Chatbot:
             norm_u += n ** 2
         for n in v:
             norm_v += n ** 2
+        if norm_u == 0 or norm_v == 0:
+            return 0
+
         norm_u, norm_v = np.sqrt(norm_u), np.sqrt(norm_v)
         similarity = np.dot(u, v) / (norm_u * norm_v)
         ########################################################################
@@ -453,6 +538,23 @@ class Chatbot:
 
         # Populate this list with k movie indices to recommend to the user.
         recommendations = []
+        movie_rating_set = []
+
+        for i, rating in enumerate(user_ratings):
+            # user did not rate the movie already
+            if rating == 0:
+                cos_sim = np.zeros(len(user_ratings))
+                for j, rating_by_all in enumerate(ratings_matrix):
+                    if user_ratings[j] != 0:
+                        item_item_sim = self.similarity(ratings_matrix[i], rating_by_all)
+                        cos_sim[j] = item_item_sim
+                user_score = np.dot(cos_sim, user_ratings)
+                movie_rating_set.append((i, user_score))
+
+        sorted_scores = sorted(movie_rating_set, key=lambda tup:tup[1], reverse=True)
+
+        for i in range(0, k):
+            recommendations.append(sorted_scores[i][0])
 
         ########################################################################
         #                        END OF YOUR CODE                              #
