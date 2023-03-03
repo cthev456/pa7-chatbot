@@ -169,7 +169,8 @@ class Chatbot:
         pre-processed with preprocess()
         :returns: list of movie titles that are potentially in the text
         """
-        pattern = '(\".+\"|\'.+\')'  # 
+        # May change in creative mode, but passes basic mode 
+        pattern = '(\"[^\"]+\"|\'[^\']+\')'  
         pot_titles = re.findall(pattern, preprocessed_input)
         # remove the quotation marks 
         res = [title[1:-1] for title in pot_titles]
