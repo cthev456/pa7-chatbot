@@ -12,7 +12,7 @@ import string
 class Chatbot:
     """Simple class to implement the chatbot for PA 6."""
 
-    def __init__(self, creative=False):
+    def __init__(self, creative=False):  
         # The chatbot's default name is `moviebot`.
         # TODO: Give your chatbot a new name.
         self.name = 'Ely/Janice/Shumann/Chris MovieBot'
@@ -101,16 +101,22 @@ class Chatbot:
         ########################################################################
         if self.creative:
             response = "I processed {} in creative mode!!".format(line)
+            title_list = self.extract_titles(line)
+            print(title_list)
+            for title in title_list:
+                mov_index = self.find_movies_by_title(title)
+                print(mov_index)
         else:
             response = "I processed {} in starter mode!!".format(line)
             ## TEST 
             # print(self.sentiment)
-            print(self.extract_titles(line))
-            title_list = self.extract_titles(line)
-            for title in title_list:
-                mov_index = self.find_movies_by_title(title)
-                print(mov_index)
-            print(self.extract_sentiment(line))
+            # print(self.extract_titles(line))
+            # title_list = self.extract_titles(line)
+            # for title in title_list:
+            #     mov_index = self.find_movies_by_title(title)
+            #     print(mov_index)
+            # print(self.extract_sentiment(line))
+            
 
         ########################################################################
         #                          END OF YOUR CODE                            #
@@ -224,7 +230,30 @@ class Chatbot:
                     movie_ids.append(index)
             else:
                 if edited_title == pot_match[:-7]:
-                    movie_ids.append(index)    
+                    movie_ids.append(index)   
+
+            if self.creative:
+                alternate_pattern = ".+\(a.k.a. .+"
+                foreign_pattern = ".+\(.+\) ([0-9]{4})"
+
+                if re.match(alternate_pattern, pot_match) or re.match(foreign_pattern, pot_match):
+                    alternate_title = re.findall(".+\(a.k.a. (.+)\).+", pot_match)
+                    foreign_title = re.findall(".+[\(a.k.a.+\)]? \((.+)\) \([0-9]{4}\)", pot_match)
+
+                    if len(alternate_title) != 0:
+                        alternate_title = alternate_title[0]
+                    if len(foreign_title) != 0:
+                        foreign_title = foreign_title[0]
+
+                    print(alternate_title, pot_match)
+                    print(foreign_title, pot_match)
+
+                    if edited_title == alternate_title:
+                        movie_ids.append(index)
+                    elif edited_title == foreign_title:
+                        movie_ids.append(index)
+
+        
         return movie_ids
 
     def extract_sentiment(self, preprocessed_input):
@@ -289,7 +318,6 @@ class Chatbot:
 
             # stemming
             # stem_word = self.stemmer.stem(word, 0,len(word)-1)
-
             # negation word classified as negative sentiment (find all words ending in nt if not in our list)
             if word in self.opposite or re.search("nt$", word):  # or stem_word in self.opposite
                 neg_next *= -1
@@ -396,8 +424,56 @@ class Chatbot:
         :returns: a list of movie indices with titles closest to the given title
         and within edit distance max_distance
         """
+        #### find title ####  
+        title = title.lower()
+        close_titles = []
+        min_dist_so_far = max_distance + 1
 
-        pass
+        #### Iterate & Edit All Titles ####
+        for index in range(len(self.titles)):
+            (p_title, genre) = self.titles[index]
+            # lowercased p_title 
+            p_title = p_title.lower()
+            # extract the title from p_title 
+            year_pattern = ".+ \([0-9]{4}\)"
+            # find if title has year 
+            if re.match(year_pattern, p_title):
+                # p_title = re.findall("(.+[^\s]),?\s?\([0-9]{4}\)", p_title)
+                p_title = re.findall("(.+)\s.+", p_title)
+                p_title = p_title[0]
+                # print(p_title)
+            
+            #### find the edit distance ####
+
+            # initialize matrix
+            D = np.zeros((len(title)+1, len(p_title)+1), 'int')
+            for j in range(len(p_title)+1):
+                D[0][j] = j
+            for i in range(len(title)+1):
+                D[i][0] = i
+
+            # recurrence relation 
+            for i in range(1, len(title)+1):
+                for j in range(1, len(p_title)+1):
+                    subst_cost = 2
+                    if title[i-1] == p_title[j-1]:
+                        subst_cost = 0
+                    # update matrix
+                    D[i][j] = np.min([D[i-1][j]+1, D[i][j-1]+1, D[i-1][j-1]+subst_cost])
+                    
+            #### update close titles list ####
+            if D[len(title)][len(p_title)] <= max_distance:
+                if D[len(title)][len(p_title)] == min_dist_so_far:
+                    close_titles.append(index)
+                elif D[len(title)][len(p_title)] < min_dist_so_far:
+                    min_dist_so_far = D[len(title)][len(p_title)]
+                    close_titles = []
+                    close_titles.append(index)
+
+        return close_titles
+
+
+        
 
     def disambiguate(self, clarification, candidates):
         """Creative Feature: Given a list of movies that the user could be
@@ -491,10 +567,10 @@ class Chatbot:
             norm_u += n ** 2
         for n in v:
             norm_v += n ** 2
-        if norm_u == 0 or norm_v == 0:
-            return 0
 
         norm_u, norm_v = np.sqrt(norm_u), np.sqrt(norm_v)
+        if norm_u == 0 or norm_v == 0:  
+            return np.dot(u,v)
         similarity = np.dot(u, v) / (norm_u * norm_v)
         ########################################################################
         #                          END OF YOUR CODE                            #
@@ -537,7 +613,35 @@ class Chatbot:
         # scores.                                                              #
         ########################################################################
 
-        # Populate this list with k movie indices to recommend to the user.
+        # movie_index_not_watched = np.where(user_ratings == 0.0)
+        # movie_index_watched = np.where(user_ratings != 0.0)
+        movie_ratings_not_watched = []
+
+        # for m_n_index in movie_index_not_watched[0]:
+        for m_n_index in range(len(ratings_matrix)):
+            if user_ratings[m_n_index] != 0:
+                continue
+
+            cur_movie_ratings = ratings_matrix[m_n_index]
+            rating_prediction = 0
+
+            for m_index in range(len(user_ratings)):
+                if user_ratings[m_index] != 0:
+                    comp_movie_ratings = ratings_matrix[m_index]
+                    cos_sim = self.similarity(comp_movie_ratings, cur_movie_ratings)
+                    rating_prediction += cos_sim * user_ratings[m_index]
+
+            if rating_prediction != 0:
+                rating_prediction = rating_prediction 
+                movie_ratings_not_watched.append( (rating_prediction, m_n_index) )
+        
+        movie_ratings_not_watched = sorted(movie_ratings_not_watched, reverse=True)
+        recommendations = [m_n_index for (rating, m_n_index) in movie_ratings_not_watched]
+        
+        # movie_ratings_not_watched = sorted(movie_ratings_not_watched, reverse=True)
+        # recommendations = [m_n_index for (rating, m_n_index) in movie_ratings_not_watched if user_ratings[m_n_index] == 0]
+        # print(movie_ratings_not_watched)
+
         # recommendations = []
         # movie_rating_set = []
 
@@ -561,36 +665,6 @@ class Chatbot:
         # #                        END OF YOUR CODE                              #
         # ########################################################################
         # return recommendations
-        valid_movies = np.where(user_ratings != 0) 
-        useful_ratings = ratings_matrix[valid_movies]
-
-        #Get cosine similarity between what user has rated and everything else
-        item_sims = np.dot(useful_ratings, ratings_matrix.T)
-        item_sims = item_sims.astype(float)
-
-        #Normalize
-        col_norms = np.linalg.norm(ratings_matrix, axis=1)
-        row_norms = np.linalg.norm(useful_ratings, axis=1)
-
-        m,n = item_sims.shape
-        for i in range(m):
-            if row_norms[i] == 0: item_sims[i:] = 0
-            else:
-                item_sims[i,:] = item_sims[i,:] / row_norms[i]
-        for i in range(n):
-            if col_norms[i] == 0: item_sims[:,i] = 0
-            else:  
-                item_sims[:,i] = item_sims[:,i] / col_norms[i]
-
-
-        #Create ratings by weighting similarities by user ratings
-        valid_user_ratings = user_ratings[valid_movies]
-        ratings = np.dot(item_sims.T, valid_user_ratings)
-
-        # Get rid of ratings for movies that the user has already seen
-        ratings[valid_movies] = -np.inf
-
-        recommendations = list(np.argsort(ratings)[::-1])
             
         # #############################################################################
         # #                             END OF YOUR CODE                              #
